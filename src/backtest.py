@@ -14,8 +14,8 @@ def generate_predictions(model_path, data_path, seq_len=30, batch_size=512):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device for prediction: {device}")
     
-    # We only need val_loader for predictions
-    _, val_loader, num_features = get_dataloaders(data_path, seq_len=seq_len, batch_size=batch_size)
+    # We only need test_loader for predictions (backtest on test set)
+    _, _, test_loader, num_features = get_dataloaders(data_path, seq_len=seq_len, batch_size=batch_size)
     
     model = StockGRU(input_size=num_features, hidden_size=64, num_layers=2).to(device)
     model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
@@ -27,7 +27,7 @@ def generate_predictions(model_path, data_path, seq_len=30, batch_size=512):
     
     print("Generating predictions...")
     with torch.no_grad():
-        for X, _, dates, codes in tqdm(val_loader):
+        for X, _, dates, codes in tqdm(test_loader):
             X = X.to(device)
             preds = model(X).cpu().numpy()
             

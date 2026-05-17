@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 
 class StockSequenceDataset(Dataset):
-    def __init__(self, df, feature_cols, target_col, seq_len=30):
+    def __init__(self, df, feature_cols, target_col, seq_len=30, target_date_start=None, target_date_end=None):
         """
         df: pre-sorted dataframe by 'ts_code' and 'trade_date'
         """
@@ -13,6 +13,12 @@ class StockSequenceDataset(Dataset):
         self.targets = []
         self.dates = []
         self.codes = []
+        
+        # Ensure target dates are strings for comparison with group_dates (which were cast to str)
+        if target_date_start is not None:
+            target_date_start = pd.to_datetime(target_date_start).strftime('%Y-%m-%d')
+        if target_date_end is not None:
+            target_date_end = pd.to_datetime(target_date_end).strftime('%Y-%m-%d')
         
         # We must create sequences for each stock independently
         grouped = df.groupby('ts_code')
@@ -27,6 +33,14 @@ class StockSequenceDataset(Dataset):
             
             # Create sliding windows
             for i in range(len(group) - seq_len + 1):
+                target_date = group_dates[i + seq_len - 1]
+                
+                # Filter by actual target date to ensure strict no-overlap
+                if target_date_start is not None and target_date < target_date_start:
+                    continue
+                if target_date_end is not None and target_date > target_date_end:
+                    continue
+                    
                 self.features.append(group_features[i : i + seq_len])
                 # Target is the label of the LAST day in the sequence
                 # (which corresponds to the forward 1-day return after the sequence ends)
@@ -55,29 +69,34 @@ def get_dataloaders(parquet_path, seq_len=30, batch_size=512):
     feature_cols = [c for c in df.columns if c not in ['ts_code', 'trade_date', target_col]]
     print(f"Using {len(feature_cols)} features: {feature_cols}")
 
-    # Train/Val Split (Time based)
-    # Train: 2016-01-01 to 2024-12-31
-    # Val: 2025-01-01 to 2026-05-14
-    train_df = df[(df['trade_date'] >= '2016-01-01') & (df['trade_date'] <= '2024-12-31')].copy()
-    val_df = df[(df['trade_date'] >= '2025-01-01') & (df['trade_date'] <= '2026-05-14')].copy()
-
-    print(f"Train samples: {len(train_df)}, Val samples: {len(val_df)}")
+    # Train/Val/Test Split (Time based filtering on targets)
+    train_start, train_end = pd.to_datetime('2013-01-01'), pd.to_datetime('2024-12-31')
+    val_start, val_end = pd.to_datetime('2025-01-01'), pd.to_datetime('2025-12-31')
+    test_start, test_end = pd.to_datetime('2026-01-01'), pd.to_datetime('2026-12-31')
 
     # Standardization (Fit on train ONLY to prevent data leakage)
-    mean = train_df[feature_cols].mean()
-    std = train_df[feature_cols].std() + 1e-8 # prevent division by zero
+    train_mask = (df['trade_date'] >= train_start) & (df['trade_date'] <= train_end)
+    mean = df[train_mask][feature_cols].mean()
+    std = df[train_mask][feature_cols].std() + 1e-8 # prevent division by zero
 
-    train_df.loc[:, feature_cols] = (train_df[feature_cols] - mean) / std
-    val_df.loc[:, feature_cols] = (val_df[feature_cols] - mean) / std
+    # Apply standardization globally
+    df.loc[:, feature_cols] = (df[feature_cols] - mean) / std
 
     print("Building datasets (sliding windows)... this may take a moment.")
-    train_dataset = StockSequenceDataset(train_df, feature_cols, target_col, seq_len=seq_len)
-    val_dataset = StockSequenceDataset(val_df, feature_cols, target_col, seq_len=seq_len)
+    train_dataset = StockSequenceDataset(df, feature_cols, target_col, seq_len=seq_len, 
+                                         target_date_start=train_start, target_date_end=train_end)
+    val_dataset = StockSequenceDataset(df, feature_cols, target_col, seq_len=seq_len,
+                                       target_date_start=val_start, target_date_end=val_end)
+    test_dataset = StockSequenceDataset(df, feature_cols, target_col, seq_len=seq_len,
+                                        target_date_start=test_start, target_date_end=test_end)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    print(f"Train targets: {len(train_dataset)}, Val targets: {len(val_dataset)}, Test targets: {len(test_dataset)}")
 
-    return train_loader, val_loader, len(feature_cols)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, pin_memory=True)
+
+    return train_loader, val_loader, test_loader, len(feature_cols)
 
 if __name__ == "__main__":
     # Test

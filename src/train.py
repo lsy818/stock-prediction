@@ -68,7 +68,7 @@ def main():
     
     # Hyperparameters
     seq_len = 30
-    batch_size = 512
+    batch_size = 4096  # 大幅提升 batch_size 榨干 GPU 算力
     epochs = 20
     lr = 0.001
     patience = 5
@@ -76,7 +76,7 @@ def main():
     data_path = '../data/processed/csi300_features.parquet'
     
     print("Preparing Dataloaders...")
-    train_loader, val_loader, num_features = get_dataloaders(data_path, seq_len=seq_len, batch_size=batch_size)
+    train_loader, val_loader, test_loader, num_features = get_dataloaders(data_path, seq_len=seq_len, batch_size=batch_size)
     
     print("Initializing Model...")
     model = StockGRU(input_size=num_features, hidden_size=64, num_layers=2).to(device)
