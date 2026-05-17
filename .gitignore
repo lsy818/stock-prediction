@@ -1,3 +1,9 @@
 A股数据/
 /data
+*/__pycache__
+*/checkpoints
+
 *.csv
+*.log
+*.pth
+*.pyc
