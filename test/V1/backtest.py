@@ -59,10 +59,11 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=10):
     dates = sorted(df_preds['trade_date'].unique())
     
     cash = initial_cash
-    holdings = {} # ts_code -> shares
+    holdings = {} # ts_code -> {'shares': int, 'cost_price': float}
     
     history = []
     trade_logs = []
+    trade_results = [] # True for win, False for loss
     
     for i in tqdm(range(len(dates) - 1), desc="Backtesting days"):
         date_t = dates[i]
@@ -85,12 +86,18 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=10):
         codes_to_sell = [code for code in holdings.keys() if code not in target_codes]
         for code in codes_to_sell:
             if code in open_map and not pd.isna(open_map[code]):
-                shares = holdings[code]
+                shares = holdings[code]['shares']
+                cost_price = holdings[code]['cost_price']
                 price = open_map[code]
                 
                 proceeds = shares * price * (1 - 0.00025 - 0.0005)
                 cash += proceeds
                 del holdings[code]
+                
+                # Check if it was a winning trade
+                total_cost = shares * cost_price * (1 + 0.00025)
+                trade_results.append(proceeds > total_cost)
+                
                 trade_logs.append(f"{date_next.strftime('%Y-%m-%d')} | SELL | {code} | {shares} shares @ {price:.2f} | Proceeds: {proceeds:.2f}")
 
         # 3. Buy Phase at t+1 Open
@@ -101,17 +108,28 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=10):
                 if code in open_map and not pd.isna(open_map[code]):
                     price = open_map[code]
                     cost_per_share = price * (1 + 0.00025)
-                    shares = math.floor((cash_per_stock / cost_per_share) / 100) * 100
+                    
+                    # Apply trading lot constraints
+                    if code.startswith('688'):
+                        # STAR Market: minimum 200 shares, increment by 1
+                        shares = math.floor(cash_per_stock / cost_per_share)
+                        if shares < 200:
+                            shares = 0
+                    else:
+                        # Main/ChiNext: increment by 100
+                        shares = math.floor((cash_per_stock / cost_per_share) / 100) * 100
+                        
                     if shares > 0:
                         cost = shares * cost_per_share
                         if cash >= cost:
                             cash -= cost
-                            holdings[code] = shares
+                            holdings[code] = {'shares': shares, 'cost_price': price}
                             trade_logs.append(f"{date_next.strftime('%Y-%m-%d')} | BUY  | {code} | {shares} shares @ {price:.2f} | Cost: {cost:.2f}")
                             
         # 4. Calculate Equity at t+1 Close
         stock_value = 0
-        for code, shares in holdings.items():
+        for code, holding_data in holdings.items():
+            shares = holding_data['shares']
             if code in close_map and not pd.isna(close_map[code]):
                 stock_value += shares * close_map[code]
             elif code in open_map and not pd.isna(open_map[code]):
@@ -139,33 +157,59 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=10):
     daily_rf = 0.03 / 252 # 3% annual risk free rate
     sharpe = (history_df['daily_return'].mean() - daily_rf) / (history_df['daily_return'].std() + 1e-8) * math.sqrt(252)
     
-    print("\n" + "="*30)
-    print("BACKTEST RESULTS (MVP)")
-    print("="*30)
-    print(f"Initial Equity: {initial_cash:.2f}")
-    print(f"Final Equity:   {history_df['equity'].iloc[-1]:.2f}")
-    print(f"Total Return:   {total_return*100:.2f}%")
-    print(f"Annual Return:  {annualized_return*100:.2f}%")
-    print(f"Max Drawdown:   {max_drawdown*100:.2f}%")
-    print(f"Sharpe Ratio:   {sharpe:.2f}")
-    print("="*30)
+    # Win Rate
+    trade_win_rate = sum(trade_results) / len(trade_results) if len(trade_results) > 0 else 0
+    daily_win_rate = (history_df['daily_return'] > 0).mean()
+    
+    # Calculate IC / ICIR
+    print("Calculating IC/ICIR...")
+    ic_df = pd.merge(df_preds, df_raw[['trade_date', 'ts_code', 'label_return_1d']], on=['trade_date', 'ts_code'], how='inner')
+    ic_series = ic_df.groupby('trade_date').apply(lambda x: x['pred'].corr(x['label_return_1d'], method='spearman'))
+    ic_mean = ic_series.mean()
+    ic_ir = ic_mean / ic_series.std() if ic_series.std() != 0 else 0
+    
+    report_lines = [
+        "="*30,
+        "BACKTEST RESULTS (MVP - Test Set)",
+        "="*30,
+        f"Initial Equity:    {initial_cash:.2f}",
+        f"Final Equity:      {history_df['equity'].iloc[-1]:.2f}",
+        f"Total Return:      {total_return*100:.2f}%",
+        f"Annual Return:     {annualized_return*100:.2f}%",
+        f"Max Drawdown:      {max_drawdown*100:.2f}%",
+        f"Sharpe Ratio:      {sharpe:.2f}",
+        f"Trade Win Rate:    {trade_win_rate*100:.2f}%",
+        f"Daily Win Rate:    {daily_win_rate*100:.2f}%",
+        f"Rank IC (Mean):    {ic_mean:.4f}",
+        f"ICIR:              {ic_ir:.4f}",
+        "="*30
+    ]
+    
+    report_text = "\n".join(report_lines)
+    print("\n" + report_text)
     
     # Plotting
     plt.figure(figsize=(10, 5))
     plt.plot(history_df['trade_date'], history_df['equity'], label='Strategy Equity')
-    plt.title('MVP Strategy Backtest (CSI 300 Components)')
+    plt.title('Strategy Backtest on Test Set (CSI 300)')
     plt.xlabel('Date')
     plt.ylabel('Equity')
     plt.legend()
     plt.grid(True)
     os.makedirs('results', exist_ok=True)
     plt.savefig('results/equity_curve.png')
-    print("Equity curve saved to results/equity_curve.png")
     
     # Save Trade Logs
     with open('results/trade_history.log', 'w', encoding='utf-8') as f:
         f.write('\n'.join(trade_logs))
+        
+    # Save Summary Report
+    with open('results/backtest_summary.txt', 'w', encoding='utf-8') as f:
+        f.write(report_text)
+        
+    print("Equity curve saved to results/equity_curve.png")
     print("Trade history saved to results/trade_history.log")
+    print("Summary report saved to results/backtest_summary.txt")
 
 if __name__ == '__main__':
     model_path = 'checkpoints/best_gru.pth'

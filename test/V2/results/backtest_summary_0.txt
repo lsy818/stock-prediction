@@ -1,0 +1,14 @@
+==============================
+BACKTEST RESULTS (MVP - Test Set)
+==============================
+Initial Equity:    1000000.00
+Final Equity:      1023843.08
+Total Return:      2.38%
+Annual Return:     7.51%
+Max Drawdown:      -26.19%
+Sharpe Ratio:      0.40
+Trade Win Rate:    46.96%
+Daily Win Rate:    40.24%
+Rank IC (Mean):    0.0231
+ICIR:              0.1376
+==============================
