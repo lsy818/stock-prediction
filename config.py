@@ -27,31 +27,31 @@ TEST_END = "2026-12-31"  # will be capped by latest data
 
 # ── Sliding Window ─────────────────────────────────────
 SEQ_LEN = 60          # lookback window in trading days
-PRED_HORIZON = 1       # predict T+N return
-TARGET_N = 1
+PRED_HORIZON = 3       # predict T+N return
+TARGET_N = 3            # T+3: less noisy than T+1, more stable signal
 
 # ── Stock Pool ─────────────────────────────────────────
 EXCLUDE_MARKETS = ["北交所"]   # exclude BeiJiaoSuo
 EXCLUDE_ST = True              # exclude ST / *ST stocks
-MIN_LIST_DAYS = 60             # minimum trading history required
+MIN_LIST_DAYS = 80             # need 60 days lookback + buffer for T+3
 
 # ── Model ──────────────────────────────────────────────
-D_MODEL = 128
-HIDDEN_DIM = 256
+D_MODEL = 96           # slightly smaller to reduce overfitting
+HIDDEN_DIM = 192
 NUM_LAYERS = 2
 NUM_HEADS = 4
-DROPOUT = 0.3
+DROPOUT = 0.4           # stronger dropout for regularization
 OUTPUT_DIM = 1
 
 # ── Training ───────────────────────────────────────────
 BATCH_SIZE = 2048
-SAMPLE_STEP = 5       # use 1 out of every N training samples for speed
-LEARNING_RATE = 1e-3
-WEIGHT_DECAY = 1e-4
-MAX_EPOCHS = 50
-EARLY_STOP_PATIENCE = 10
+SAMPLE_STEP = 2       # use 1 out of every N training samples (more data)
+LEARNING_RATE = 5e-4   # lower LR for stable training
+WEIGHT_DECAY = 3e-4    # stronger weight decay
+MAX_EPOCHS = 60
+EARLY_STOP_PATIENCE = 12
 GRAD_CLIP_NORM = 1.0
-WARMUP_EPOCHS = 3
+WARMUP_EPOCHS = 5
 
 # ── Trading Strategy ───────────────────────────────────
 N_HOLD = 20          # number of stocks held
