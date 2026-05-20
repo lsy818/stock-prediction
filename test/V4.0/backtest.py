@@ -19,27 +19,13 @@ def is_limit_down(code, open_price, pre_close):
     limit_price = round(pre_close * limit_ratio, 2)
     return open_price <= limit_price + 1e-4
 
-def generate_predictions(model_path, data_path, seq_len=15, batch_size=512, dataset_type='test',
-                         train_period=('2016-01-01', '2024-12-31'),
-                         val_period=('2025-01-01', '2025-12-31'),
-                         test_period=('2026-01-01', '2026-12-31')):
-    """Run model over the validation or test set to get predictions."""
+def generate_predictions(model_path, data_path, seq_len=15, batch_size=512):
+    """Run model over the test set to get predictions."""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device for prediction: {device}")
     
-    # Select correct loader based on dataset_type
-    if dataset_type == 'val':
-        _, val_loader, _, num_features = get_dataloaders(
-            data_path, seq_len=seq_len, batch_size=batch_size, 
-            train_period=train_period, val_period=val_period, test_period=None
-        )
-        loader = val_loader
-    else:
-        _, _, test_loader, num_features = get_dataloaders(
-            data_path, seq_len=seq_len, batch_size=batch_size, 
-            train_period=train_period, val_period=None, test_period=test_period
-        )
-        loader = test_loader
+    # We only need test_loader for predictions (backtest on test set)
+    _, _, test_loader, num_features = get_dataloaders(data_path, seq_len=seq_len, batch_size=batch_size)
     
     model = EnsembleAttentionGRU(
         input_size=num_features, 
@@ -56,9 +42,9 @@ def generate_predictions(model_path, data_path, seq_len=15, batch_size=512, data
     all_codes = []
     all_preds = []
     
-    print(f"Generating predictions for {dataset_type} set...")
+    print("Generating predictions...")
     with torch.no_grad():
-        for X, _, dates, codes in tqdm(loader):
+        for X, _, dates, codes in tqdm(test_loader):
             X = X.to(device)
             preds = model(X).cpu().numpy()
             
@@ -76,7 +62,7 @@ def generate_predictions(model_path, data_path, seq_len=15, batch_size=512, data
     df_preds['trade_date'] = pd.to_datetime(df_preds['trade_date'])
     return df_preds
 
-def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60, label="测试集"):
+def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30):
     """
     V4 Vectorized-like Backtester with VWAP execution and Macro MA60 Filter.
     """
@@ -130,44 +116,21 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
             if not pd.isna(idx_ma60) and idx_close < idx_ma60:
                 max_pos_ratio = 0.3 # Reduce total position to 30% if below MA60
                 
-        # Sort predictions of day t
-        preds_sorted = preds_t.sort_values('pred', ascending=False)
-        rank_list = list(preds_sorted['ts_code'])
-        rank_map = {code: idx + 1 for idx, code in enumerate(rank_list)}
-        pred_map = {row['ts_code']: row['pred'] for _, row in preds_sorted.iterrows()}
+        # Target Top K_pool from day t's prediction
+        target_df = preds_t.nlargest(top_k, 'pred')
         
-        # 1. Check current holdings to see which ones we keep
-        keep_codes = []
-        for code in list(holdings.keys()):
-            rank_val = rank_map.get(code, 999)
-            pred_val = pred_map.get(code, 0.0)
-            # Keep if ranking is within sell_threshold and prediction is positive
-            if rank_val <= sell_threshold and pred_val > 0:
-                keep_codes.append(code)
-                
-        # 2. Fill empty slots with new buys from the top ranks
-        empty_slots = top_k - len(keep_codes)
-        buy_codes = []
-        if empty_slots > 0:
-            for code in rank_list:
-                if len(buy_codes) >= empty_slots:
-                    break
-                # Only buy if it's not already kept, and has positive prediction
-                if code not in keep_codes and pred_map.get(code, 0.0) > 0:
-                    buy_codes.append(code)
-                    
-        valid_codes = keep_codes + buy_codes
+        valid_codes = [row['ts_code'] for _, row in target_df.iterrows() if row['pred'] > 0]
             
         target_weights = {}
         if len(valid_codes) > 0:
             weight_per_stock = 1.0 / len(valid_codes)
             target_weights = {code: weight_per_stock for code in valid_codes}
             
-        # 3. Portfolio Rebalancing at t+1 Open
+        # 3. Portfolio Rebalancing at t+1 VWAP
         current_equity = cash
         for code, holding_data in holdings.items():
             shares = holding_data['shares']
-            price = open_map.get(code, holding_data['cost_price'])
+            price = vwap_map.get(code, open_map.get(code, holding_data['cost_price']))
             current_equity += shares * price
             
         # Apply Macro Position Limit
@@ -177,8 +140,8 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
         target_shares_map = {}
         for code, weight in target_weights.items():
             target_value = target_equity_to_allocate * weight
-            if code in open_map and not pd.isna(open_map[code]):
-                price = open_map[code]
+            if code in vwap_map and not pd.isna(vwap_map[code]):
+                price = vwap_map[code]
                 cost_per_share = price * (1 + 0.00025)
                 
                 if code.startswith('688'):
@@ -219,8 +182,9 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
                             target_shares_map[code] = target_shares
 
 
-                if code in open_map and not pd.isna(open_map[code]) and not pd.isna(pre_close_map.get(code)):
-                    open_price = open_map[code]
+                if code in vwap_map and not pd.isna(vwap_map[code]) and not pd.isna(pre_close_map.get(code)):
+                    open_price = open_map.get(code, vwap_map[code])
+                    vwap_price = vwap_map[code]
                     pre_close = pre_close_map[code]
                     
                     if is_limit_down(code, open_price, pre_close):
@@ -228,7 +192,7 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
                         target_shares_map[code] = current_shares
                         continue
                         
-                    proceeds = shares_to_sell * open_price * (1 - 0.00025 - 0.0005)
+                    proceeds = shares_to_sell * vwap_price * (1 - 0.00025 - 0.0005)
                     cash += proceeds
                     
                     if target_shares == 0:
@@ -239,7 +203,7 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
                     else:
                         holdings[code]['shares'] = target_shares
                         
-                    trade_logs.append(f"{date_next.strftime('%Y-%m-%d')} | SELL | {code} | {shares_to_sell} shares @ Open {open_price:.2f} | Proceeds: {proceeds:.2f}")
+                    trade_logs.append(f"{date_next.strftime('%Y-%m-%d')} | SELL | {code} | {shares_to_sell} shares @ VWAP {vwap_price:.2f} | Proceeds: {proceeds:.2f}")
 
         # Buy Phase
         for code, target_shares in list(target_shares_map.items()):
@@ -259,8 +223,9 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
                         continue
                     target_shares = current_shares + shares_to_buy
                 
-                if code in open_map and not pd.isna(open_map[code]) and not pd.isna(pre_close_map.get(code)):
-                    open_price = open_map[code]
+                if code in vwap_map and not pd.isna(vwap_map[code]) and not pd.isna(pre_close_map.get(code)):
+                    open_price = open_map.get(code, vwap_map[code])
+                    vwap_price = vwap_map[code]
                     pre_close = pre_close_map[code]
                     
                     if is_limit_up(code, open_price, pre_close):
@@ -268,7 +233,7 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
                         target_shares_map[code] = current_shares
                         continue
                         
-                    cost_per_share = open_price * (1 + 0.00025)
+                    cost_per_share = vwap_price * (1 + 0.00025)
                     cost = shares_to_buy * cost_per_share
                     
                     if cash < cost:
@@ -287,13 +252,13 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
                         if code in holdings:
                             old_shares = holdings[code]['shares']
                             old_cost = holdings[code]['cost_price']
-                            new_cost_price = (old_shares * old_cost + shares_to_buy * open_price) / target_shares
+                            new_cost_price = (old_shares * old_cost + shares_to_buy * vwap_price) / target_shares
                             holdings[code]['shares'] = target_shares
                             holdings[code]['cost_price'] = new_cost_price
                         else:
-                            holdings[code] = {'shares': target_shares, 'cost_price': open_price}
+                            holdings[code] = {'shares': target_shares, 'cost_price': vwap_price}
                         
-                        trade_logs.append(f"{date_next.strftime('%Y-%m-%d')} | BUY  | {code} | {shares_to_buy} shares @ Open {open_price:.2f} | Cost: {cost:.2f}")
+                        trade_logs.append(f"{date_next.strftime('%Y-%m-%d')} | BUY  | {code} | {shares_to_buy} shares @ VWAP {vwap_price:.2f} | Cost: {cost:.2f}")
                             
         # 4. Calculate Equity at t+1 Close
         stock_value = 0
@@ -301,8 +266,8 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
             shares = holding_data['shares']
             if code in close_map and not pd.isna(close_map[code]):
                 stock_value += shares * close_map[code]
-            elif code in open_map and not pd.isna(open_map[code]):
-                stock_value += shares * open_map[code]
+            elif code in vwap_map and not pd.isna(vwap_map[code]):
+                stock_value += shares * vwap_map[code]
                 
         equity = cash + stock_value
         history.append({'trade_date': date_next, 'equity': equity, 'cash': cash})
@@ -334,7 +299,7 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
     
     report_lines = [
         "="*30,
-        f"BACKTEST RESULTS (V4 - Focus on Quality - {label} - Sell Threshold: {sell_threshold})",
+        "BACKTEST RESULTS (V4 - Focus on Quality)",
         "="*30,
         f"Initial Equity:    {initial_cash:.2f}",
         f"Final Equity:      {history_df['equity'].iloc[-1]:.2f}",
@@ -354,54 +319,31 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
     
     plt.figure(figsize=(10, 5))
     plt.plot(history_df['trade_date'], history_df['equity'], label='Strategy Equity')
-    plt.title(f'Strategy Backtest on {label} Set (V4)')
+    plt.title('Strategy Backtest on Test Set (V4)')
     plt.xlabel('Date')
     plt.ylabel('Equity')
     plt.legend()
     plt.grid(True)
     os.makedirs('results', exist_ok=True)
+    plt.savefig('results/equity_curve.png')
     
-    file_suffix = f"_{label}" if label else ""
-    plt.savefig(f'results/equity_curve{file_suffix}.png')
-    
-    with open(f'results/trade_history{file_suffix}.log', 'w', encoding='utf-8') as f:
+    with open('results/trade_history.log', 'w', encoding='utf-8') as f:
         f.write('\n'.join(trade_logs))
         
-    with open(f'results/backtest_summary{file_suffix}.txt', 'w', encoding='utf-8') as f:
+    with open('results/backtest_summary.txt', 'w', encoding='utf-8') as f:
         f.write(report_text)
         
-    print(f"Equity curve saved to results/equity_curve{file_suffix}.png")
-    print(f"Trade history saved to results/trade_history{file_suffix}.log")
-    print(f"Summary report saved to results/backtest_summary{file_suffix}.txt")
-    
-    return {
-        'total_return': total_return,
-        'annualized_return': annualized_return,
-        'max_drawdown': max_drawdown,
-        'sharpe': sharpe,
-        'trade_win_rate': trade_win_rate,
-        'daily_win_rate': daily_win_rate,
-        'ic_mean': ic_mean,
-        'ic_ir': ic_ir
-    }
+    print("Equity curve saved to results/equity_curve.png")
+    print("Trade history saved to results/trade_history.log")
+    print("Summary report saved to results/backtest_summary.txt")
 
 if __name__ == '__main__':
-    model_path = 'checkpoints/best_ensemble.pth'
+    model_path = 'checkpoints/best_ensemble_800.pth'
     data_path = '../../data/processed/800_stocks_features.parquet'
+    
+    df_preds = generate_predictions(model_path, data_path, seq_len=15)
     
     print("Loading original prices for backtest...")
     df_raw = pd.read_parquet(data_path)
     
-    # Run Validation Set Backtest
-    print("\n" + "="*40)
-    print("=== Phase 1: Validation Set Backtest (2025) ===")
-    print("="*40)
-    df_preds_val = generate_predictions(model_path, data_path, seq_len=15, dataset_type='val')
-    backtest(df_preds_val, df_raw, top_k=30, label="验证集")
-    
-    # Run Test Set Backtest
-    print("\n" + "="*40)
-    print("=== Phase 2: Test Set Backtest (2026) ===")
-    print("="*40)
-    df_preds_test = generate_predictions(model_path, data_path, seq_len=15, dataset_type='test')
-    backtest(df_preds_test, df_raw, top_k=30, label="测试集")
+    backtest(df_preds, df_raw, top_k=30)

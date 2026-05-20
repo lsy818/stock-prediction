@@ -1,0 +1,14 @@
+==============================
+BACKTEST RESULTS (V4 - Focus on Quality)
+==============================
+Initial Equity:    1000000.00
+Final Equity:      1153232.30
+Total Return:      15.32%
+Annual Return:     54.98%
+Max Drawdown:      -8.80%
+Sharpe Ratio:      1.55
+Trade Win Rate:    48.91%
+Daily Win Rate:    57.32%
+Rank IC (Mean):    0.0219
+ICIR:              0.1634
+==============================

@@ -63,31 +63,38 @@ def validate(model, dataloader, criterion, device):
     
     return avg_loss, ic
 
-def train_model(data_path, train_period, val_period, save_path, seq_len=15, epochs=15, batch_size=8192, lr=1e-3, patience=5):
+def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
-    print(f"Preparing Dataloaders for Train: {train_period}, Val: {val_period}...")
-    train_loader, val_loader, _, num_features = get_dataloaders(
-        data_path, seq_len=seq_len, batch_size=batch_size,
-        train_period=train_period, val_period=val_period, test_period=None
-    )
+    # Hyperparameters
+    epochs = 15
+    lr = 0.001
+    patience = 5
+    
+    data_path = '../../data/processed/800_stocks_features.parquet'
+    
+    print("Preparing Dataloaders...")
+    # Adjust batch_size for 800 stocks * 5 years = approx 1 million rows
+    train_loader, val_loader, test_loader, num_features = get_dataloaders(
+        data_path, seq_len=15, batch_size=8192)
     
     print("Initializing Model...")
+    # Initialize Ensemble Attention GRU
     model = EnsembleAttentionGRU(
         input_size=num_features,
         hidden_size=64,
         num_layers=2,
         dropout=0.2,
-        num_models=3
+        num_models=3 # Ensemble of 3 GRUs
     ).to(device)
     
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     
     best_val_ic = -float('inf')
     epochs_no_improve = 0
-    os.makedirs(os.path.dirname(save_path) if os.path.dirname(save_path) else '.', exist_ok=True)
+    os.makedirs('checkpoints', exist_ok=True)
     
     print("Starting Training...")
     for epoch in range(epochs):
@@ -99,23 +106,13 @@ def train_model(data_path, train_period, val_period, save_path, seq_len=15, epoc
         if val_ic > best_val_ic:
             best_val_ic = val_ic
             epochs_no_improve = 0
-            torch.save(model.state_dict(), save_path)
-            print(f"  [*] Best Model Saved to {save_path}!")
+            torch.save(model.state_dict(), 'checkpoints/best_ensemble.pth')
+            print("  [*] Best Model Saved!")
         else:
             epochs_no_improve += 1
             if epochs_no_improve >= patience:
                 print(f"Early stopping triggered after {epoch+1} epochs.")
                 break
-    return model
-
-def main():
-    data_path = '../../data/processed/800_stocks_features.parquet'
-    train_model(
-        data_path=data_path,
-        train_period=('2016-01-01', '2024-12-31'),
-        val_period=('2025-01-01', '2025-12-31'),
-        save_path='checkpoints/best_ensemble.pth'
-    )
 
 if __name__ == '__main__':
     main()

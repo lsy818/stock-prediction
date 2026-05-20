@@ -43,10 +43,7 @@ class StockSequenceDataset(Dataset):
         
         return X, y, date, code
 
-def get_dataloaders(parquet_path, seq_len=15, batch_size=512,
-                    train_period=('2016-01-01', '2024-12-31'),
-                    val_period=('2025-01-01', '2025-12-31'),
-                    test_period=('2026-01-01', '2026-12-31')):
+def get_dataloaders(parquet_path, seq_len=15, batch_size=512):
     print("Loading parquet data...")
     df = pd.read_parquet(parquet_path)
     df['trade_date'] = pd.to_datetime(df['trade_date'])
@@ -79,9 +76,9 @@ def get_dataloaders(parquet_path, seq_len=15, batch_size=512,
     import gc; gc.collect()
 
     # Train/Val/Test Split (Time based filtering on targets)
-    train_start, train_end = pd.to_datetime(train_period[0]), pd.to_datetime(train_period[1])
-    val_start, val_end = (pd.to_datetime(val_period[0]), pd.to_datetime(val_period[1])) if val_period is not None else (None, None)
-    test_start, test_end = (pd.to_datetime(test_period[0]), pd.to_datetime(test_period[1])) if test_period is not None else (None, None)
+    train_start, train_end = pd.to_datetime('2016-01-01'), pd.to_datetime('2024-12-31')
+    val_start, val_end = pd.to_datetime('2025-01-01'), pd.to_datetime('2025-12-31')
+    test_start, test_end = pd.to_datetime('2026-01-01'), pd.to_datetime('2026-12-31')
 
     # Standardization (Fit on train ONLY to prevent data leakage)
     train_mask = ((df['trade_date'] >= train_start) & (df['trade_date'] <= train_end)).values
@@ -106,32 +103,23 @@ def get_dataloaders(parquet_path, seq_len=15, batch_size=512,
     print("Building datasets (sliding windows)... this may take a moment.")
     train_start_str = train_start.strftime('%Y-%m-%d')
     train_end_str = train_end.strftime('%Y-%m-%d')
-    
+    val_start_str = val_start.strftime('%Y-%m-%d')
+    val_end_str = val_end.strftime('%Y-%m-%d')
+    test_start_str = test_start.strftime('%Y-%m-%d')
+    test_end_str = test_end.strftime('%Y-%m-%d')
+
     train_dataset = StockSequenceDataset(features_tensor, targets_tensor, codes_array, dates_array, stock_changes, seq_len=seq_len, 
                                          target_date_start=train_start_str, target_date_end=train_end_str)
+    val_dataset = StockSequenceDataset(features_tensor, targets_tensor, codes_array, dates_array, stock_changes, seq_len=seq_len,
+                                       target_date_start=val_start_str, target_date_end=val_end_str)
+    test_dataset = StockSequenceDataset(features_tensor, targets_tensor, codes_array, dates_array, stock_changes, seq_len=seq_len,
+                                        target_date_start=test_start_str, target_date_end=test_end_str)
+
+    print(f"Train targets: {len(train_dataset)}, Val targets: {len(val_dataset)}, Test targets: {len(test_dataset)}")
+
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, pin_memory=True)
-
-    val_dataset = None
-    val_loader = None
-    if val_period is not None:
-        val_start_str = val_start.strftime('%Y-%m-%d')
-        val_end_str = val_end.strftime('%Y-%m-%d')
-        val_dataset = StockSequenceDataset(features_tensor, targets_tensor, codes_array, dates_array, stock_changes, seq_len=seq_len,
-                                           target_date_start=val_start_str, target_date_end=val_end_str)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, pin_memory=True)
-
-    test_dataset = None
-    test_loader = None
-    if test_period is not None:
-        test_start_str = test_start.strftime('%Y-%m-%d')
-        test_end_str = test_end.strftime('%Y-%m-%d')
-        test_dataset = StockSequenceDataset(features_tensor, targets_tensor, codes_array, dates_array, stock_changes, seq_len=seq_len,
-                                            target_date_start=test_start_str, target_date_end=test_end_str)
-        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, pin_memory=True)
-
-    val_len = len(val_dataset) if val_dataset is not None else 0
-    test_len = len(test_dataset) if test_dataset is not None else 0
-    print(f"Train targets: {len(train_dataset)}, Val targets: {val_len}, Test targets: {test_len}")
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, pin_memory=True)
 
     return train_loader, val_loader, test_loader, len(feature_cols)
 

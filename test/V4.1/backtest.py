@@ -76,7 +76,7 @@ def generate_predictions(model_path, data_path, seq_len=15, batch_size=512, data
     df_preds['trade_date'] = pd.to_datetime(df_preds['trade_date'])
     return df_preds
 
-def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60, label="测试集"):
+def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, label="测试集"):
     """
     V4 Vectorized-like Backtester with VWAP execution and Macro MA60 Filter.
     """
@@ -130,33 +130,10 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
             if not pd.isna(idx_ma60) and idx_close < idx_ma60:
                 max_pos_ratio = 0.3 # Reduce total position to 30% if below MA60
                 
-        # Sort predictions of day t
-        preds_sorted = preds_t.sort_values('pred', ascending=False)
-        rank_list = list(preds_sorted['ts_code'])
-        rank_map = {code: idx + 1 for idx, code in enumerate(rank_list)}
-        pred_map = {row['ts_code']: row['pred'] for _, row in preds_sorted.iterrows()}
+        # Target Top K_pool from day t's prediction
+        target_df = preds_t.nlargest(top_k, 'pred')
         
-        # 1. Check current holdings to see which ones we keep
-        keep_codes = []
-        for code in list(holdings.keys()):
-            rank_val = rank_map.get(code, 999)
-            pred_val = pred_map.get(code, 0.0)
-            # Keep if ranking is within sell_threshold and prediction is positive
-            if rank_val <= sell_threshold and pred_val > 0:
-                keep_codes.append(code)
-                
-        # 2. Fill empty slots with new buys from the top ranks
-        empty_slots = top_k - len(keep_codes)
-        buy_codes = []
-        if empty_slots > 0:
-            for code in rank_list:
-                if len(buy_codes) >= empty_slots:
-                    break
-                # Only buy if it's not already kept, and has positive prediction
-                if code not in keep_codes and pred_map.get(code, 0.0) > 0:
-                    buy_codes.append(code)
-                    
-        valid_codes = keep_codes + buy_codes
+        valid_codes = [row['ts_code'] for _, row in target_df.iterrows() if row['pred'] > 0]
             
         target_weights = {}
         if len(valid_codes) > 0:
@@ -334,7 +311,7 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
     
     report_lines = [
         "="*30,
-        f"BACKTEST RESULTS (V4 - Focus on Quality - {label} - Sell Threshold: {sell_threshold})",
+        f"BACKTEST RESULTS (V4 - Focus on Quality - {label})",
         "="*30,
         f"Initial Equity:    {initial_cash:.2f}",
         f"Final Equity:      {history_df['equity'].iloc[-1]:.2f}",
