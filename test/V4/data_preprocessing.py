@@ -164,9 +164,11 @@ def generate_labels(df):
     # T+1 Return (Next day's pct_chg)
     # Since pct_chg is typically today's return, the label is the pct_chg of the NEXT day.
     df['label_return_1d'] = df.groupby('ts_code')['pct_chg'].shift(-1)
+    df['label_return_3d'] = df.groupby('ts_code')['pct_chg'].transform(lambda x: x.shift(-1).rolling(3).sum().shift(-2))
+    df['label_return_5d'] = df.groupby('ts_code')['pct_chg'].transform(lambda x: x.shift(-1).rolling(5).sum().shift(-4))
     
-    # Drop rows with NaN in labels (the last day for each stock will have no label)
-    df = df.dropna(subset=['label_return_1d'])
+    # Drop rows with NaN in labels (the last few days for each stock will have no label)
+    df = df.dropna(subset=['label_return_1d', 'label_return_3d', 'label_return_5d'])
     
     return df
 

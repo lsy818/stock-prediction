@@ -46,7 +46,8 @@ class StockSequenceDataset(Dataset):
 def get_dataloaders(parquet_path, seq_len=15, batch_size=512,
                     train_period=('2016-01-01', '2024-12-31'),
                     val_period=('2025-01-01', '2025-12-31'),
-                    test_period=('2026-01-01', '2026-12-31')):
+                    test_period=('2026-01-01', '2026-12-31'),
+                    target_col='label_return_1d'):
     print("Loading parquet data...")
     df = pd.read_parquet(parquet_path)
     df['trade_date'] = pd.to_datetime(df['trade_date'])
@@ -65,9 +66,10 @@ def get_dataloaders(parquet_path, seq_len=15, batch_size=512,
     # --------------------------------------------------------------
 
     # Define features and target
-    target_col = 'label_return_1d'
-    # Drop non-feature columns
-    feature_cols = [c for c in df.columns if c not in ['ts_code', 'trade_date', target_col]]
+    # target_col is passed as an argument
+    # Strictly exclude ALL label columns to prevent look-ahead leakage
+    label_cols = ['label_return_1d', 'label_return_3d', 'label_return_5d']
+    feature_cols = [c for c in df.columns if c not in ['ts_code', 'trade_date'] + label_cols]
     print(f"Using {len(feature_cols)} features: {feature_cols}")
 
     # Extract feature columns as a float32 numpy array immediately to save memory

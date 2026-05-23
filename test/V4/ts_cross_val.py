@@ -38,7 +38,10 @@ def main():
             epochs=15,
             batch_size=8192,
             lr=1e-3,
-            patience=5
+            patience=5,
+            target_col='label_return_5d',
+            loss_type='hybrid',
+            alpha=0.5
         )
         
         # 2. 预测验证集
@@ -49,7 +52,8 @@ def main():
             seq_len=15,
             dataset_type='val',
             train_period=(train_start, train_end),
-            val_period=(val_start, val_end)
+            val_period=(val_start, val_end),
+            target_col='label_return_5d'
         )
         
         # 3. 回测评估
