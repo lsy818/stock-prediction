@@ -79,7 +79,7 @@ def generate_predictions(model_path, data_path, seq_len=15, batch_size=512, data
     df_preds['trade_date'] = pd.to_datetime(df_preds['trade_date'])
     return df_preds
 
-def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60, label="测试集"):
+def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60, ic_label='label_return_1d', label="测试集"):
     """
     V4 Vectorized-like Backtester with VWAP execution and Macro MA60 Filter.
     """
@@ -330,8 +330,8 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
     daily_win_rate = (history_df['daily_return'] > 0).mean()
     
     print("Calculating IC/ICIR...")
-    ic_df = pd.merge(df_preds, df_raw[['trade_date', 'ts_code', 'label_return_1d']], on=['trade_date', 'ts_code'], how='inner')
-    ic_series = ic_df.groupby('trade_date').apply(lambda x: x['pred'].corr(x['label_return_1d'], method='spearman'))
+    ic_df = pd.merge(df_preds, df_raw[['trade_date', 'ts_code', ic_label]], on=['trade_date', 'ts_code'], how='inner')
+    ic_series = ic_df.groupby('trade_date').apply(lambda x: x['pred'].corr(x[ic_label], method='spearman'))
     ic_mean = ic_series.mean()
     ic_ir = ic_mean / ic_series.std() if ic_series.std() != 0 else 0
     
@@ -365,17 +365,17 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
     os.makedirs('results', exist_ok=True)
     
     file_suffix = f"_{label}" if label else ""
-    plt.savefig(f'results/equity_curve{file_suffix}.png')
+    plt.savefig(f'results/equity_curve_{ic_label}{file_suffix}.png')
     
-    with open(f'results/trade_history{file_suffix}.log', 'w', encoding='utf-8') as f:
+    with open(f'results/trade_history_{ic_label}{file_suffix}.log', 'w', encoding='utf-8') as f:
         f.write('\n'.join(trade_logs))
         
-    with open(f'results/backtest_summary{file_suffix}.txt', 'w', encoding='utf-8') as f:
+    with open(f'results/backtest_summary_{ic_label}{file_suffix}.txt', 'w', encoding='utf-8') as f:
         f.write(report_text)
         
-    print(f"Equity curve saved to results/equity_curve{file_suffix}.png")
-    print(f"Trade history saved to results/trade_history{file_suffix}.log")
-    print(f"Summary report saved to results/backtest_summary{file_suffix}.txt")
+    print(f"Equity curve saved to results/equity_curve_{ic_label}{file_suffix}.png")
+    print(f"Trade history saved to results/trade_history_{ic_label}{file_suffix}.log")
+    print(f"Summary report saved to results/backtest_summary_{ic_label}{file_suffix}.txt")
     
     return {
         'total_return': total_return,
@@ -400,11 +400,11 @@ if __name__ == '__main__':
     print("=== Phase 1: Validation Set Backtest (2025) ===")
     print("="*40)
     df_preds_val = generate_predictions(model_path, data_path, seq_len=15, dataset_type='val', target_col='label_return_5d')
-    backtest(df_preds_val, df_raw, top_k=30, label="验证集")
+    backtest(df_preds_val, df_raw, top_k=30, ic_label='label_return_1d', label="验证集")
     
     # Run Test Set Backtest
     print("\n" + "="*40)
     print("=== Phase 2: Test Set Backtest (2026) ===")
     print("="*40)
     df_preds_test = generate_predictions(model_path, data_path, seq_len=15, dataset_type='test', target_col='label_return_5d')
-    backtest(df_preds_test, df_raw, top_k=30, label="测试集")
+    backtest(df_preds_test, df_raw, top_k=30, ic_label='label_return_1d', label="测试集")
