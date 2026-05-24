@@ -1,8 +1,6 @@
 import os
 import torch
 import torch.nn as nn
-from torch.cuda.amp import autocast, GradScaler
-import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import scipy.stats
@@ -82,7 +80,7 @@ class HybridLoss(nn.Module):
         pairwise_loss = torch.stack(pairwise_losses).mean()
         return self.alpha * mse_loss + (1.0 - self.alpha) * pairwise_loss
 
-def train_one_epoch(model, dataloader, criterion, optimizer, device, scaler):
+def train_one_epoch(model, dataloader, criterion, optimizer, device):
     model.train()
     total_loss = 0.0
     
@@ -90,22 +88,13 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, scaler):
         X, y = X.to(device), y.to(device)
         
         optimizer.zero_grad()
-        
-        with autocast():
-            preds = model(X)
-            if isinstance(criterion, HybridLoss):
-                loss = criterion(preds, y, dates)
-            else:
-                loss = criterion(preds, y)
-                
-        scaler.scale(loss).backward()
-        
-        # Unscale the gradients before clipping
-        scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        
-        scaler.step(optimizer)
-        scaler.update()
+        preds = model(X)
+        if isinstance(criterion, HybridLoss):
+            loss = criterion(preds, y, dates)
+        else:
+            loss = criterion(preds, y)
+        loss.backward()
+        optimizer.step()
         
         total_loss += loss.item()
         
@@ -144,7 +133,7 @@ def train_model(data_path, train_period, val_period, save_path, seq_len=15, epoc
     
     print(f"Preparing Dataloaders for Train: {train_period}, Val: {val_period} with target: {target_col}...")
     train_loader, val_loader, _, num_features = get_dataloaders(
-        data_path, seq_len=seq_len,
+        data_path, seq_len=seq_len, batch_size=batch_size,
         train_period=train_period, val_period=val_period, test_period=None,
         target_col=target_col
     )
@@ -166,7 +155,6 @@ def train_model(data_path, train_period, val_period, save_path, seq_len=15, epoc
         criterion = nn.MSELoss()
         
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
-    scaler = GradScaler()
     
     best_val_ic = -float('inf')
     epochs_no_improve = 0
@@ -174,7 +162,7 @@ def train_model(data_path, train_period, val_period, save_path, seq_len=15, epoc
     
     print("Starting Training...")
     for epoch in range(epochs):
-        train_loss = train_one_epoch(model, train_loader, criterion, optimizer, device, scaler)
+        train_loss = train_one_epoch(model, train_loader, criterion, optimizer, device)
         val_loss, val_ic = validate(model, val_loader, criterion, device)
         
         print(f"Epoch {epoch+1}/{epochs} | Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f} | Val IC: {val_ic:.4f}")

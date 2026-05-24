@@ -2,45 +2,6 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 import numpy as np
-import collections
-
-class DateBatchSampler(torch.utils.data.Sampler):
-    def __init__(self, dataset, dates_per_batch=20, shuffle=True):
-        self.dates_per_batch = dates_per_batch
-        self.shuffle = shuffle
-        
-        # Group dataset indices by date
-        self.date_to_indices = collections.defaultdict(list)
-        for i, idx in enumerate(dataset.valid_indices):
-            self.date_to_indices[dataset.dates[idx]].append(i)
-            
-        self.dates = sorted(self.date_to_indices.keys())
-        self.num_batches = len(self.dates) // dates_per_batch
-            
-    def __iter__(self):
-        dates = self.dates.copy()
-        if self.shuffle:
-            np.random.shuffle(dates)
-            
-        num_full_batches = len(dates) // self.dates_per_batch
-        remainder = len(dates) % self.dates_per_batch
-
-        for i in range(num_full_batches):
-            batch_dates = dates[i * self.dates_per_batch : (i + 1) * self.dates_per_batch]
-            batch_indices = []
-            for d in batch_dates:
-                batch_indices.extend(self.date_to_indices[d])
-            yield batch_indices
-
-        if remainder > 0 and not self.shuffle:  # 验证/测试集保留余数
-            batch_dates = dates[num_full_batches * self.dates_per_batch:]
-            batch_indices = []
-            for d in batch_dates:
-                batch_indices.extend(self.date_to_indices[d])
-            yield batch_indices
-            
-    def __len__(self):
-        return self.num_batches
 
 class StockSequenceDataset(Dataset):
     def __init__(self, features, targets, codes, dates, stock_changes, seq_len=15, target_date_start=None, target_date_end=None):
@@ -82,7 +43,7 @@ class StockSequenceDataset(Dataset):
         
         return X, y, date, code
 
-def get_dataloaders(parquet_path, seq_len=15, 
+def get_dataloaders(parquet_path, seq_len=15, batch_size=512,
                     train_period=('2016-01-01', '2024-12-31'),
                     val_period=('2025-01-01', '2025-12-31'),
                     test_period=('2026-01-01', '2026-12-31'),
@@ -150,8 +111,7 @@ def get_dataloaders(parquet_path, seq_len=15,
     
     train_dataset = StockSequenceDataset(features_tensor, targets_tensor, codes_array, dates_array, stock_changes, seq_len=seq_len, 
                                          target_date_start=train_start_str, target_date_end=train_end_str)
-    train_sampler = DateBatchSampler(train_dataset, dates_per_batch=20, shuffle=True)
-    train_loader = DataLoader(train_dataset, batch_sampler=train_sampler, pin_memory=True, num_workers=4)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, pin_memory=True)
 
     val_dataset = None
     val_loader = None
@@ -160,8 +120,7 @@ def get_dataloaders(parquet_path, seq_len=15,
         val_end_str = val_end.strftime('%Y-%m-%d')
         val_dataset = StockSequenceDataset(features_tensor, targets_tensor, codes_array, dates_array, stock_changes, seq_len=seq_len,
                                            target_date_start=val_start_str, target_date_end=val_end_str)
-        val_sampler = DateBatchSampler(val_dataset, dates_per_batch=20, shuffle=False)
-        val_loader = DataLoader(val_dataset, batch_sampler=val_sampler, pin_memory=True, num_workers=4)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, pin_memory=True)
 
     test_dataset = None
     test_loader = None
@@ -170,8 +129,7 @@ def get_dataloaders(parquet_path, seq_len=15,
         test_end_str = test_end.strftime('%Y-%m-%d')
         test_dataset = StockSequenceDataset(features_tensor, targets_tensor, codes_array, dates_array, stock_changes, seq_len=seq_len,
                                             target_date_start=test_start_str, target_date_end=test_end_str)
-        test_sampler = DateBatchSampler(test_dataset, dates_per_batch=20, shuffle=False)
-        test_loader = DataLoader(test_dataset, batch_sampler=test_sampler, pin_memory=True, num_workers=4)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, pin_memory=True)
 
     val_len = len(val_dataset) if val_dataset is not None else 0
     test_len = len(test_dataset) if test_dataset is not None else 0

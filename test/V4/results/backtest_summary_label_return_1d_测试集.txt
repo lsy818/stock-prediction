@@ -2,13 +2,13 @@
 BACKTEST RESULTS (V4 - Focus on Quality - 测试集 - Sell Threshold: 60)
 ==============================
 Initial Equity:    1000000.00
-Final Equity:      1120927.94
-Total Return:      12.09%
-Annual Return:     40.84%
-Max Drawdown:      -8.86%
-Sharpe Ratio:      1.36
-Trade Win Rate:    51.34%
-Daily Win Rate:    55.95%
-Rank IC (Mean):    0.0208
-ICIR:              0.1602
+Final Equity:      1108056.07
+Total Return:      10.81%
+Annual Return:     36.05%
+Max Drawdown:      -9.70%
+Sharpe Ratio:      1.05
+Trade Win Rate:    55.38%
+Daily Win Rate:    54.76%
+Rank IC (Mean):    0.0188
+ICIR:              0.1711
 ==============================

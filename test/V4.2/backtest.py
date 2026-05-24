@@ -19,7 +19,7 @@ def is_limit_down(code, open_price, pre_close):
     limit_price = round(pre_close * limit_ratio, 2)
     return open_price <= limit_price + 1e-4
 
-def generate_predictions(model_path, data_path, seq_len=15, dataset_type='test',
+def generate_predictions(model_path, data_path, seq_len=15, batch_size=512, dataset_type='test',
                          train_period=('2016-01-01', '2024-12-31'),
                          val_period=('2025-01-01', '2025-12-31'),
                          test_period=('2026-01-01', '2026-12-31'),
@@ -31,14 +31,14 @@ def generate_predictions(model_path, data_path, seq_len=15, dataset_type='test',
     # Select correct loader based on dataset_type
     if dataset_type == 'val':
         _, val_loader, _, num_features = get_dataloaders(
-            data_path, seq_len=seq_len, 
+            data_path, seq_len=seq_len, batch_size=batch_size, 
             train_period=train_period, val_period=val_period, test_period=None,
             target_col=target_col
         )
         loader = val_loader
     else:
         _, _, test_loader, num_features = get_dataloaders(
-            data_path, seq_len=seq_len, 
+            data_path, seq_len=seq_len, batch_size=batch_size, 
             train_period=train_period, val_period=None, test_period=test_period,
             target_col=target_col
         )
@@ -400,11 +400,11 @@ if __name__ == '__main__':
     print("=== Phase 1: Validation Set Backtest (2025) ===")
     print("="*40)
     df_preds_val = generate_predictions(model_path, data_path, seq_len=15, dataset_type='val', target_col='label_return_5d')
-    backtest(df_preds_val, df_raw, top_k=30, ic_label='label_return_5d', label="验证集")
+    backtest(df_preds_val, df_raw, top_k=30, ic_label='label_return_1d', label="验证集")
     
     # Run Test Set Backtest
     print("\n" + "="*40)
     print("=== Phase 2: Test Set Backtest (2026) ===")
     print("="*40)
     df_preds_test = generate_predictions(model_path, data_path, seq_len=15, dataset_type='test', target_col='label_return_5d')
-    backtest(df_preds_test, df_raw, top_k=30, ic_label='label_return_5d', label="测试集")
+    backtest(df_preds_test, df_raw, top_k=30, ic_label='label_return_1d', label="测试集")

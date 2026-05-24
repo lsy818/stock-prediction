@@ -159,47 +159,6 @@ def calculate_technical_indicators(df):
 
     return df
 
-def add_cross_sectional_features(df):
-    print("Adding cross-sectional features...")
-    
-    # 1. 动量与量价 Rank
-    df['cross_rank_pct_chg'] = df.groupby('trade_date')['pct_chg'].rank(pct=True)
-    if 'turnover_rate' in df.columns:
-        df['cross_rank_turnover_rate'] = df.groupby('trade_date')['turnover_rate'].rank(pct=True)
-    if 'volume_ratio' in df.columns:
-        df['cross_rank_volume_ratio'] = df.groupby('trade_date')['volume_ratio'].rank(pct=True)
-    if 'amount' in df.columns:
-        df['cross_rank_amount'] = df.groupby('trade_date')['amount'].rank(pct=True)
-    if 'mom5' in df.columns:
-        df['cross_rank_mom5'] = df.groupby('trade_date')['mom5'].rank(pct=True)
-    
-    # 2. 资金流向 Rank
-    if 'net_mf_amount_ma5' in df.columns:
-        df['cross_rank_net_mf_ma5'] = df.groupby('trade_date')['net_mf_amount_ma5'].rank(pct=True)
-    if 'mf_to_amount_ratio' in df.columns:
-        df['cross_rank_mf_ratio'] = df.groupby('trade_date')['mf_to_amount_ratio'].rank(pct=True)
-    
-    # 3. 行业特征
-    if 'industry' in df.columns:
-        industry_mean_return = df.groupby(['trade_date', 'industry'])['pct_chg'].transform('mean')
-        industry_mom = df.groupby(['trade_date', 'industry'])['mom5'].transform('mean')
-        industry_count = df.groupby(['trade_date', 'industry'])['ts_code'].transform('count')
-        
-        df['industry_rel_return'] = np.where(industry_count >= 5, df['pct_chg'] - industry_mean_return, 0)
-        df['industry_mom'] = np.where(industry_count >= 5, industry_mom, 0)
-        
-        df['industry_rel_return'] = df['industry_rel_return'].fillna(0)
-        df['industry_mom'] = df['industry_mom'].fillna(0)
-        
-        # 将非数值的 industry 列丢弃，以免后续转 tensor 报错
-        df = df.drop(columns=['industry'])
-        
-    # 缺失值处理：Rank 的中性值为 0.5
-    rank_cols = [c for c in df.columns if 'cross_rank' in c]
-    df[rank_cols] = df[rank_cols].fillna(0.5)
-    
-    return df
-
 def generate_labels(df):
     print("Generating labels...")
     # T+1 Return (Next day's pct_chg)
@@ -231,20 +190,10 @@ def main():
     raw_df[cols_to_fill] = raw_df[cols_to_fill].fillna(0)
     
     # 4. Feature Engineering
-    df = calculate_technical_indicators(raw_df)
-    
-    # Merge basic.csv for industry
-    basic_path = os.path.join(DATA_DIR, 'basic.csv')
-    if os.path.exists(basic_path):
-        print("Merging basic.csv for industry data...")
-        df_basic = pd.read_csv(basic_path)
-        if 'ts_code' in df_basic.columns and 'industry' in df_basic.columns:
-            df = df.merge(df_basic[['ts_code', 'industry']], on='ts_code', how='left')
-            
-    df = add_cross_sectional_features(df)
+    features_df = calculate_technical_indicators(raw_df)
     
     # 5. Labels
-    final_df = generate_labels(df)
+    final_df = generate_labels(features_df)
     
     # 6. Drop NaNs resulted from rolling windows
     final_df = final_df.dropna().reset_index(drop=True)
