@@ -1,6 +1,7 @@
 import os
 import math
 import torch
+from torch.cuda.amp import autocast
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
@@ -23,24 +24,24 @@ def generate_predictions(model_path, data_path, seq_len=15, dataset_type='test',
                          train_period=('2016-01-01', '2024-12-31'),
                          val_period=('2025-01-01', '2025-12-31'),
                          test_period=('2026-01-01', '2026-12-31'),
-                         target_col='label_return_1d'):
+                         target_col='label_return_1d', df=None):
     """Run model over the validation or test set to get predictions."""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device for prediction: {device}")
     
     # Select correct loader based on dataset_type
     if dataset_type == 'val':
-        _, val_loader, _, num_features = get_dataloaders(
-            data_path, seq_len=seq_len, 
+        _, val_loader, _, num_features, unique_dates = get_dataloaders(
+            data_path, seq_len=seq_len,
             train_period=train_period, val_period=val_period, test_period=None,
-            target_col=target_col
+            target_col=target_col, df=df
         )
         loader = val_loader
     else:
-        _, _, test_loader, num_features = get_dataloaders(
-            data_path, seq_len=seq_len, 
+        _, _, test_loader, num_features, unique_dates = get_dataloaders(
+            data_path, seq_len=seq_len,
             train_period=train_period, val_period=None, test_period=test_period,
-            target_col=target_col
+            target_col=target_col, df=df
         )
         loader = test_loader
     
@@ -63,20 +64,27 @@ def generate_predictions(model_path, data_path, seq_len=15, dataset_type='test',
     with torch.no_grad():
         for X, _, dates, codes in tqdm(loader):
             X = X.to(device)
-            preds = model(X).cpu().numpy()
+            with autocast():
+                preds = model(X).cpu().numpy()
             
             all_dates.extend(dates)
             all_codes.extend(codes)
             all_preds.extend(preds)
-            
+
     df_preds = pd.DataFrame({
         'trade_date': all_dates,
         'ts_code': all_codes,
         'pred': all_preds
     })
-    
-    # Dates are returned as strings, ensure datetime
-    df_preds['trade_date'] = pd.to_datetime(df_preds['trade_date'])
+
+    # date_id → actual Timestamp 还原
+    date_id_to_ts = {i: pd.Timestamp(d) for i, d in enumerate(unique_dates)}
+    df_preds['trade_date'] = df_preds['trade_date'].map(date_id_to_ts)
+
+    # 显式释放 GPU 模型，防止 Fold 循环中显存累积
+    del model
+    torch.cuda.empty_cache()
+
     return df_preds
 
 def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60, ic_label='label_return_1d', label="测试集"):

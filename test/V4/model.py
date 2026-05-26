@@ -32,6 +32,7 @@ class AttentionGRU(nn.Module):
             dropout=dropout if num_layers > 1 else 0
         )
         
+        self.layer_norm = nn.LayerNorm(hidden_size)
         self.attention = Attention(hidden_size)
         
         self.fc = nn.Sequential(
@@ -45,6 +46,7 @@ class AttentionGRU(nn.Module):
         # x shape: (batch_size, seq_len, input_size)
         out, _ = self.gru(x)
         # out shape: (batch_size, seq_len, hidden_size)
+        out = self.layer_norm(out)
         
         # Apply attention over the sequence
         context, _ = self.attention(out)
