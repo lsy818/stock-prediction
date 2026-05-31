@@ -89,7 +89,7 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
     
     # Load CSI 300 for Macro Filter
     try:
-        index_df = pd.read_csv('../../data/market/000300.SH.csv')
+        index_df = pd.read_csv('../data/market/000300.SH.csv')
         index_df['trade_date'] = pd.to_datetime(index_df['trade_date'].astype(str))
         index_df = index_df.sort_values('trade_date')
         index_df['ma60'] = index_df['close'].rolling(60).mean()
@@ -390,7 +390,7 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
 
 if __name__ == '__main__':
     model_path = 'checkpoints/best_ensemble.pth'
-    data_path = '../../data/processed/800_stocks_features.parquet'
+    data_path = '../data/processed/800_stocks_features.parquet'
     
     print("Loading original prices for backtest...")
     df_raw = pd.read_parquet(data_path)

@@ -1,0 +1,14 @@
+==============================
+BACKTEST RESULTS (V4 - Focus on Quality - Fold_2_val - Sell Threshold: 60)
+==============================
+Initial Equity:    1000000.00
+Final Equity:      1533940.36
+Total Return:      53.39%
+Annual Return:     56.42%
+Max Drawdown:      -16.18%
+Sharpe Ratio:      1.49
+Trade Win Rate:    47.35%
+Daily Win Rate:    48.13%
+Rank IC (Mean):    0.0442
+ICIR:              0.2835
+==============================

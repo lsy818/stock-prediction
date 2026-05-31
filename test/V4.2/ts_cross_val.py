@@ -1,10 +1,11 @@
 import os
 import pandas as pd
 import numpy as np
-from train import train_model
+from train import train_model, set_seed
 from backtest import generate_predictions, backtest
 
 def main():
+    set_seed(42)
     data_path = '../../data/processed/800_stocks_features.parquet'
     
     # 3-Fold 滑动窗口时间序列划分
@@ -36,7 +37,7 @@ def main():
             val_period=(val_start, val_end),
             save_path=checkpoint_path,
             epochs=15,
-            batch_size=8192,
+            batch_size=12288,
             lr=1e-3,
             patience=5,
             target_col='label_return_5d',

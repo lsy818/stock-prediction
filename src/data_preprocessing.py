@@ -4,8 +4,8 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 
-DATA_DIR = '../../data'
-OUTPUT_DIR = '../../data/processed'
+DATA_DIR = '../data'
+OUTPUT_DIR = '../data/processed'
 
 def get_universe_symbols():
     print("Building high-quality universe (CSI 300 + CSI 500)...")

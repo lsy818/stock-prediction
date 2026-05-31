@@ -9,6 +9,23 @@ from tqdm import tqdm
 from dataset import get_dataloaders
 from model import EnsembleAttentionGRU
 
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+
+
+def set_seed(seed=42):
+    import random
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+
+
 def calc_ic(preds, targets):
     """
     Calculate Information Coefficient (Pearson Correlation) between predictions and targets
@@ -127,7 +144,7 @@ def validate(model, dataloader, criterion, device):
     
     return avg_loss, ic
 
-def train_model(data_path, train_period, val_period, save_path, seq_len=15, epochs=15, batch_size=8192, lr=1e-3, patience=5, target_col='label_return_1d', loss_type='mse', alpha=0.5):
+def train_model(data_path, train_period, val_period, save_path, seq_len=15, epochs=15, batch_size=12288, lr=1e-3, patience=5, target_col='label_return_1d', loss_type='mse', alpha=0.5):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
@@ -180,6 +197,7 @@ def train_model(data_path, train_period, val_period, save_path, seq_len=15, epoc
     return model
 
 def main():
+    set_seed(42)
     data_path = '../../data/processed/800_stocks_features.parquet'
     train_model(
         data_path=data_path,
