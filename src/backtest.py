@@ -390,7 +390,7 @@ def backtest(df_preds, df_raw, initial_cash=1000000, top_k=30, sell_threshold=60
 
 if __name__ == '__main__':
     model_path = 'checkpoints/best_ensemble.pth'
-    data_path = '../data/processed/800_stocks_features.parquet'
+    data_path = '../output/800_stocks_features.parquet'
     
     print("Loading original prices for backtest...")
     df_raw = pd.read_parquet(data_path)

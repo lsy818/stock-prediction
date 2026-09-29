@@ -139,7 +139,7 @@ def get_dataloaders(parquet_path, seq_len=15, batch_size=512,
 
 if __name__ == "__main__":
     # Test
-    train_loader, val_loader, num_features = get_dataloaders('../data/processed/csi300_features.parquet', seq_len=30)
+    train_loader, val_loader, _, num_features = get_dataloaders('../output/800_stocks_features.parquet', seq_len=15)
     for X, y, dates, codes in train_loader:
         print(f"X batch shape: {X.shape}") # expected: [batch_size, seq_len, num_features]
         print(f"y batch shape: {y.shape}") # expected: [batch_size]
